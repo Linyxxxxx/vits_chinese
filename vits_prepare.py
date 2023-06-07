@@ -1,3 +1,6 @@
+import logging
+logging.getLogger('numba').setLevel(logging.WARNING)
+
 import os
 import torch
 import numpy as np
@@ -9,10 +12,15 @@ from bert.prosody_tool import is_chinese, pinyin_dict
 from utils import load_wav_to_torch
 from mel_processing import spectrogram_torch
 
+from tqdm import tqdm
 
-os.makedirs("./data/waves", exist_ok=True)
-os.makedirs("./data/berts", exist_ok=True)
-os.makedirs("./data/temps", exist_ok=True)
+WAVE_ROOT = "/data/yuxin/baker_16khz/wave"
+OUT_ROOT = "./data/berts"
+TEMP_ROOT = "./data/temps"
+
+os.makedirs(WAVE_ROOT, exist_ok=True)
+os.makedirs(OUT_ROOT, exist_ok=True)
+os.makedirs(TEMP_ROOT, exist_ok=True)
 
 
 def log(info: str):
@@ -53,19 +61,15 @@ if __name__ == "__main__":
     # device = torch.device("cpu")
     prosody = TTSProsody("./bert", device)
 
-    fo = open(f"./data/000001-010000.txt", "r+", encoding='utf-8')
+    file_raws = open(f"./data/000001-010000.txt", "r+", encoding='utf-8').readlines()
     scrips = []
-    while (True):
-        try:
-            message = fo.readline().strip()
-            pinyins = fo.readline().strip()
-        except Exception as e:
-            print('nothing of except:', e)
+    for i in tqdm(range(0, len(file_raws), 2)):
+        message = file_raws[i].strip()
+        pinyins = file_raws[i+1].strip()
+
+        if (message == None) or (message == ""):
             break
-        if (message == None):
-            break
-        if (message == ""):
-            break
+
         infosub = message.split("\t")
         fileidx = infosub[0]
         message = infosub[1]
@@ -88,9 +92,10 @@ if __name__ == "__main__":
             for word in message:
                 if is_chinese(word):
                     count_phone.append(2)
-                    if (phone_index >= len_pys):
-                        print(len_pys)
-                        print(phone_index)
+                    if (phone_index >= len_pys): #不支持儿化音 报错
+                        pass
+                        # print(len_pys)
+                        # print(phone_index)
                     pinyin = pinyins[phone_index]
                     phone_index = phone_index + 1
                     if pinyin[:-1] in pinyin_dict:
@@ -105,26 +110,26 @@ if __name__ == "__main__":
             phone_items.append('sil')
             phone_items_str = ' '.join(phone_items)
             log(f"\t{phone_items_str}")
-        except IndexError as e:
-            print(f"{fileidx}\t{message}")
-            print('except:', e)
+
+        except IndexError as e: #不支持儿化音 报错
+            # print(f"{fileidx}\t{message}")
+            # print('except:', e)
             continue
 
         text = f'[PAD]{message}[PAD]'
         char_embeds = prosody.get_char_embeds(text)
         char_embeds = prosody.expand_for_phone(char_embeds, count_phone)
-        char_embeds_path = f"./data/berts/{fileidx}.npy"
+        char_embeds_path = f"{OUT_ROOT}/{fileidx}.npy"
         np.save(char_embeds_path, char_embeds, allow_pickle=False)
 
-        wave_path = f"./data/waves/{fileidx}.wav"
-        spec_path = f"./data/temps/{fileidx}.spec.pt"
+        wave_path = f"{WAVE_ROOT}/{fileidx}.wav"
+        spec_path = f"{TEMP_ROOT}/{fileidx}.spec.pt"
         spec = get_spec(hps, wave_path)
 
         torch.save(spec, spec_path)
         scrips.append(
-            f"./data/waves/{fileidx}.wav|./data/temps/{fileidx}.spec.pt|./data/berts/{fileidx}.npy|{phone_items_str}")
+            f"{WAVE_ROOT}/{fileidx}.wav|{TEMP_ROOT}/{fileidx}.spec.pt|{OUT_ROOT}/{fileidx}.npy|{phone_items_str}")
 
-    fo.close()
 
     fout = open(f'./filelists/all.txt', 'w', encoding='utf-8')
     for item in scrips:

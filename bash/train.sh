@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES="2,3" python train.py -c configs/bert_vits.json -m bert_vits
